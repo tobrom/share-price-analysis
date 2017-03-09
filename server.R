@@ -11,14 +11,15 @@ library(TTR)
 shinyServer(function(input, output) {
    
   
-  yahooData <- reactive({
- 
-   ticker <- paste(symbols[(symbols$CompanyName == input$tickers),][3])
+  dailyData <- reactive({
+
+    
+  ticker <- paste(symbols[(symbols$CompanyName == input$tickers),][3])
    start.date <- input$startDate
    end.date <- Sys.Date()
-    
+ 
     sd <- substr(start.date, 9, 10) 
-    sm <- substr(start.date, 6, 7)
+    sm <- as.character(as.numeric(substr(start.date, 6, 7)) - 1)
     sy <- substr(start.date, 1, 4)
     
     ed <- substr(end.date, 9, 10) 
@@ -29,19 +30,100 @@ shinyServer(function(input, output) {
                   "&a=",sm,"&b=",sd,"&c=",sy,"&d=",em,
                   "&e=",ed,"&f=",ey,"&g=d&ignore=.csv")
     
-    url %>% read.table(header = TRUE, sep = ",") %>% 
+   url %>% read.table(header = TRUE, sep = ",") %>% 
      arrange(Date) %>% 
-    subset(Volume > 0) %>%
-     mutate(MA5 = SMA(Adj.Close, 5),
-            MA20 = SMA(Adj.Close, 20))
+    subset(Volume > 0) 
+
     
 })
   
+
+  
+
+  
+
   
   
-output$plot1 <- renderPlot({
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  monthlyTimeData <- reactive({
     
-    data1 <- yahooData()
+    monthlyData <- dailyData()
+    monthlyData$Date <- as.Date(monthlyData$Date) 
+    monthlyData$month <- format(as.Date(monthlyData$Date), "%m")
+    monthlyData$year <- format(as.Date(monthlyData$Date), "%Y")
+    
+    monthlyData <- monthlyData %>% 
+      group_by(year, month) %>% 
+      summarise(Date = max(as.Date(Date))) %>%
+      merge(monthlyData, by = c("Date", "year", "month")) %>% 
+      as.data.frame()
+    
+    ##Creating The time series
+    ts(monthlyData$Adj.Close, 
+       start = c(as.numeric(monthlyData$year[1]),
+                as.numeric(monthlyData$month[1])), 
+                frequency = 12)
+    
+    
+  })
+  
+  
+  
+  
+  
+  
+  textData <- reactive({
+   #data <- dailyData
+    data <- dailyData()
+    
+    maxDate <- max(as.Date(data$Date))
+    minDate <- min(as.Date(data$Date))
+    
+   firstClose <- paste(data[(data$Date == as.character(minDate)),][7])
+   lastClose <- paste(data[(data$Date == as.character(maxDate)),][7])
+    
+    prevClose <- paste(data[(data$Date == as.character(max(
+                      as.Date(data[(format(as.Date(data$Date), "%Y") == (as.numeric(
+                        max(format(as.Date(data$Date), "%Y"))) - 1)),][,1])))),][7])
+    
+    ytdReturn <- round((as.numeric(lastClose)/as.numeric(prevClose)-1)*100, digits = 1)
+    totalReturn <- round((as.numeric(lastClose)/as.numeric(firstClose)-1)*100, digits = 1)
+    
+    ytdText <- ifelse(ytdReturn > 0, "increase", "decrease")
+    
+    
+    
+    
+    
+    
+   data.frame(company = paste(input$tickers),
+               minDate = minDate,
+             maxDate = maxDate,
+               lastClose = lastClose,
+               ytdReturn = ytdReturn,
+               totalReturn = totalReturn,
+               ytdText = ytdText)
+    
+  })
+  
+  
+  
+  
+  
+  
+  
+  
+  output$plot1 <- renderPlot({
+    
+    data1 <- dailyData()
     
     ggplot(data1, aes(as.Date(Date), Adj.Close)) + 
       geom_line() + geom_smooth(method = "loess") + 
@@ -59,14 +141,19 @@ output$plot1 <- renderPlot({
   
 output$plot2 <- renderPlot({
 
-      data2 <- yahooData()
+      data2 <- dailyData()
+    
+      data2 <- data2 %>% 
+        mutate(shortMA = SMA(Adj.Close, input$shortMA),longMA = SMA(Adj.Close, input$longMA)) %>% 
+        select(Date, Adj.Close, shortMA, longMA) %>% as.data.frame() 
 
-      data2 <- data2[,c(1,7, 8,9)]
       colnames(data2)[2] <- "Price"
+      colnames(data2)[3] <- paste0("MA(",input$shortMA,")") 
+      colnames(data2)[4] <- paste0("MA(",input$longMA,")")
       
       data2 <- melt(data2, id = "Date")
      
-      ggplot(subset(data2, as.Date(Date) > Sys.Date()-50), aes(as.Date(Date), value, color = variable)) + 
+      ggplot(subset(data2, as.Date(Date) > Sys.Date()-100), aes(as.Date(Date), value, color = variable)) + 
         geom_line(size = 1) + 
         labs(x = "Date",
              y = "Daily Closing Price") +
@@ -86,22 +173,7 @@ output$plot2 <- renderPlot({
   
 output$plot3 <- renderPlot({
     
-    data3 <- yahooData()
-    data3$Date <- as.Date(data3$Date) 
-    data3$month <- format(as.Date(data3$Date), "%m")
-    data3$year <- format(as.Date(data3$Date), "%Y")
-    
-    data3 <- data3 %>% 
-             group_by(year, month) %>% 
-             summarise(Date = max(as.Date(Date))) %>%
-             merge(data3, by = c("Date", "year", "month")) %>% 
-             as.data.frame()
-    
-    ##Creating The time series
-    ts.stock <- ts(data3$Adj.Close, 
-                   start = c(as.numeric(data3$year[1]),
-                             as.numeric(data3$month[1])), 
-                   frequency = 12)
+    ts.stock <- monthlyTimeData()
     
     ###Decomposing the time series
     decom <- stl(ts.stock, s.window = "period")
@@ -121,30 +193,14 @@ output$plot3 <- renderPlot({
   
   output$plot4 <- renderPlot({
     
-    data4 <- yahooData()
-    data4$Date <- as.Date(data4$Date) 
-    data4$month <- format(as.Date(data4$Date), "%m")
-    data4$year <- format(as.Date(data4$Date), "%Y")
-    
-    data4 <- data4 %>% 
-      group_by(year, month) %>% 
-      summarise(Date = max(as.Date(Date))) %>%
-      merge(data4, by = c("Date", "year", "month")) %>% 
-      as.data.frame()
-    
-    
-    ##Creating The time series
-    ts.stock1 <- ts(data4$Adj.Close, 
-                   start = c(as.numeric(data4$year[1]),
-                             as.numeric(data4$month[1])), 
-                   frequency = 12)
-    
+ 
+    ts.stock1 <- monthlyTimeData()
+
     ###Fitting the best exponential model based on historic data
     
     fit1 <- ets(ts.stock1, model = "ZZZ")
     
     pred1 <- forecast(fit1,input$period)
-    
     
     autoplot(pred1) +labs(x = "Year",
                          y = "Monthly Closing Price",
@@ -157,25 +213,10 @@ output$plot3 <- renderPlot({
     
   })   
   
+  
   output$plot5 <- renderPlot({
     
-    data5 <- yahooData()
-    data5$Date <- as.Date(data5$Date) 
-    data5$month <- format(as.Date(data5$Date), "%m")
-    data5$year <- format(as.Date(data5$Date), "%Y")
-    
-    data5 <- data5 %>% 
-      group_by(year, month) %>% 
-      summarise(Date = max(as.Date(Date))) %>%
-      merge(data5, by = c("Date", "year", "month")) %>% 
-      as.data.frame()
-    
-    
-    ##Creating The time series
-    ts.stock2 <- ts(data5$Adj.Close, 
-                    start = c(as.numeric(data5$year[1]),
-                              as.numeric(data5$month[1])), 
-                    frequency = 12)
+    ts.stock2 <- monthlyTimeData()
     
     ###Fitting the best arima model
     
@@ -183,7 +224,7 @@ output$plot3 <- renderPlot({
     
     pred2 <- forecast(fit2, input$period)
     
-    tes <<- paste(forecast(fit2)$method)
+    #tes <<- paste(forecast(fit2)$method)
     
       autoplot(pred2) +labs(x = "Year",
                          y = "",
@@ -195,12 +236,20 @@ output$plot3 <- renderPlot({
     
   })   
   
-  output$text1 <- renderText(paste(tes)) 
+  output$text1 <- renderText({
+    
+    td <- textData()
+    
+    sprintf("The last closing price SEK %s (%s) for %s indicates a year-to-date share 
+            price %s with %s percentage. The share price performance for the whole period (since %s) has been %s percentage", 
+            td$lastClose, td$maxDate, td$company, td$ytdText, td$ytdReturn, td$minDate, td$totalReturn)
+       
+  
+    
+    }) 
   
 })
   
-  
- 
 
 
 
