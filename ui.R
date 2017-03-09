@@ -21,7 +21,23 @@ shinyUI(fluidPage(
       
       hr(),
       selectInput("tickers", "Ticker:", choices = symbols$CompanyName),
-      dateInput('startDate', label = 'Start Date:', value = "2012-01-02"),
+      dateInput('startDate', label = 'Start Date:', value = "2012-01-15"),
+      
+      hr(),
+      
+      sliderInput("shortMA",
+                  "Moving Average (Short):",
+                  min = 5,
+                  max = 15,
+                  value = 10),
+      
+      sliderInput("longMA",
+                  "Moving Average (Long):",
+                  min = 20,
+                  max = 50,
+                  value = 25),
+      
+      hr(),
       
       sliderInput("period",
                    "Months to forecast:",
@@ -63,4 +79,5 @@ shinyUI(fluidPage(
        
         )
   )
+
 ))
